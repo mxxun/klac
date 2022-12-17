@@ -47,16 +47,91 @@ _$ₕ_ : {A B : Type₀} → (A → B) → A → B
 f $ₕ x = f x
 
 -- dependent
-_$_ : {A : Type₀} {B : A → Type₀} → (f : (a : A) → B a) → (x : A) → B x
+-- _$_ : {A : Type₀} {B : A → Type₀} → (f : (a : A) → B a) → (x : A) → B x
+_$_ : {a b : Level} {A : Type a} {B : A -> Type b} -> ((a : A) -> B a) -> (a : A) -> B a
 f $ x = f x
+
+-- ...now, the question is: is it possible for B's _level_ to be A-polymorphic?
+-- I'm guessing "what, no, are you fucking insane", but it costs us nothing to try
+
+-- question the first: is it possible to define functions _to Level_?
+ℕ-to-Level : ℕ -> Level -- ...well `->` seems to allow this, so....
+ℕ-to-Level zero = 0ℓ
+ℕ-to-Level (suc n) = suc-ℓ (ℕ-to-Level n)
+-- .....and....._apparently_ this is valid! horrifying!
+-- I think this works because `Level : Set`. ok then!!!
+-- in that case, 
+_$ℓ_ : {aℓ : Level} {A : Type aℓ} {bℓ : A -> Level}
+  {B : (a : A) -> Type (bℓ a)} -> ((a : A) -> B a) -> (a : A) -> B a
+f $ℓ x = f x
+
+-- ...well uh, and can we define a function....that can go arbitrarily high?
+-- f : (n : ℕ) -> Type (ℕ-to-Level n)
+-- f n = {! !}
+-- ...in principle, absolutely; in practice we need either a level-polymorphic type 
+-- (we have none presently), or use Type itself, which is of course `Type : (l : Level) -> Type (suc-ℓ l)
+
+-- oh, and by the way: we can't define datatypes of levels dependeing on indices
+-- data Wat : (n : ℕ) -> Type (ℕ-to-Level n) where
+-- but parameters go fine!
+data Wat (n : ℕ) : Type (ℕ-to-Level n) where
+  W : Wat n
+-- and here we at last touch Setω!
+-- not in that Wat is Setω-typed; that its type is Setω-typed.
+-a : Agda.Primitive.Setω
+-a = (n : ℕ) -> Type (ℕ-to-Level n)
+-- ...although on reflection that can be done easier.
+-b : Agda.Primitive.Setω
+-b = (l : Level) -> Type l
+-- but if you thought Setω : Setω, you would be mistaken!
+-- it is : Setω₁ ofc.
+-- ..well now we could define a func that just returns Wat, or W, but what's the point really.
+-- anyway.
 
 -- non-dependent
 _∘ₕ_ : {A B C : Type₀} → (B → C) → (A → B) → (A → C)
 (g ∘ₕ f) x = g (f x)
 
 -- dependent
-_∘_ : {!!}
+_∘_ : {A : Type₀} {B : A -> Type₀} {C : (a : A) -> B a -> Type₀} ->
+  ({a : A} -> (b : B a) -> C a b ) -> 
+  (f : (a : A) -> B a) -> 
+  (a : A) -> C a (f a)
 (g ∘ f) x = g (f x)
+
+-- level-parametric
+_∘ℓ_ : {aℓ bℓ cℓ : Level} {A : Type aℓ} {B : A -> Type bℓ} {C : (a : A) -> B a -> Type cℓ} ->
+  ({a : A} -> (b : B a) -> C a b ) -> 
+  (f : (a : A) -> B a) -> 
+  (a : A) -> C a (f a)
+(g ∘ℓ f) x = g (f x)
+
+-- level-dependent
+_∘𝒹ℓ_ : 
+  {aℓ : Level} {A : Type aℓ} 
+  -- what's stopping us from making bℓ : Level -> A -> Level? ......restraint, let's say.
+  {bℓ : A -> Level} {B : (a : A) -> Type (bℓ a)}  
+  {cℓ : (a : A) -> B a -> Level} {C : (a : A) -> (b : B a) -> Type (cℓ a b)} ->
+  ({a : A} -> (b : B a) -> C a b ) -> 
+  (f : (a : A) -> B a) -> 
+  (a : A) -> C a (f a)
+(g ∘𝒹ℓ f) x = g (f x)
+-- .....what if we had more power?
+_∘𝒹ℓ²_ : 
+  -- {aℓ : Level} 
+  {A  : (ℓ : Level) -> Type ℓ} 
+  {bℓ : (ℓ : Level) -> A ℓ -> Level} 
+  {B  : (ℓ : Level) -> (a : A ℓ) -> Type (bℓ ℓ a)}
+  {cℓ : (ℓ : Level) -> (a : A ℓ) -> B ℓ a -> Level} 
+  {C : (ℓ : Level) -> (a : A ℓ) -> (b : B ℓ a) -> Type (cℓ ℓ a b)}
+  {ℓ : Level} ->
+  ({a : A ℓ} -> (b : B ℓ a) -> C ℓ a b ) -> 
+  (f : (a : A ℓ) -> B ℓ a) -> 
+  (a : A ℓ) -> C ℓ a (f a)
+(g ∘𝒹ℓ² f) x = g (f x)
+-- that's....different though; we parametrized everything, 
+-- not increased dependency of following params on the previous.
+
 
 #+end_src
 Эту задачу Thierry Coquand давал кому-то на защите диплома :-)
@@ -68,7 +143,12 @@ _∘_ : {!!}
 #+begin_src agda2
 
 contra′ : {A B : 𝓤₀} → (lem : (Π X ꞉ 𝓤₀ , Dec X)) → (¬ B ⇒ ¬ A) → (A ⇒ B)
-contra′ = {!!}
+contra′ {B = B} lem ¬B⇒¬A a with lem B 
+... | inj₁ b  = b
+... | inj₂ ¬B = ⊥-elim (¬B⇒¬A ¬B a)
+  where 
+  ⊥-elim : {l : Level} {W : Type l} -> ⊥ -> W
+  ⊥-elim ()
 
 #+end_src
 
@@ -82,14 +162,57 @@ contra′ = {!!}
 
 #+begin_src agda2
 
-_≡ₗ_ : {A : Type₀} → (x y : A) → Type₁
-_≡ₗ_ {A} x y = {!!}
+_≡ₗ_ : {l : Level} {A : Type l} → (x y : A) → Type (suc-ℓ l)
+_≡ₗ_ {l} {A} x y = ∀ (P : A -> Type l) -> P x ⇔ P y
 
 leibniz-to-martin-löf : {A : Type₀} (x y : A) → x ≡ₗ y → x ≡ y
-leibniz-to-martin-löf = {!!}
+leibniz-to-martin-löf x y x≡ₗy = fst (x≡ₗy (x ≡_)) (refl x)
 
 martin-löf-to-leibniz : {A : Type₀} (x y : A) → x ≡ y → x ≡ₗ y
-martin-löf-to-leibniz = {!!}
+martin-löf-to-leibniz x y (refl .x) = λ P → (λ x → x) , (λ x → x)
+
+-- the weird thing is that we do not need ↔ to get the biimplication!
+-- -> is enough.
+-- ....so maybe, if we tried to do the full iso, mere implication would be the correct equivalent?
+
+record _≅_ {a b : _} (A : Type a) (B : Type b) : Type (a ⊔ b) where
+  constructor MkIso
+  field
+    to : A -> B
+    from : B -> A
+    to∘from : (a : A) -> from (to a) ≡ a
+    from∘to : (b : B) -> to (from b) ≡ b
+
+-- ...hmm. note that we can't internalize level of P. ok then.
+-- .....and neither we can unbind it! then from doesn't work! o*k*, let's nail them to the same level.
+
+postulate 
+  ext : ∀ {a b} {A : Type a} {B : A -> Type b} -> 
+    {f g : (a : A) -> B a} -> (∀ a -> f a ≡ g a) -> f ≡ g
+
+-- apparently mere -> does not work! we get stuck at from∘to, not particularly comprehensibly.
+-- ≡-Equiv : ∀ {a} {A : Type a} -> (x y : A) -> (x ≡ y) ≅ ∀ (P : A -> Type a) -> P x -> P y
+-- ≡-Equiv x y = MkIso 
+--   (λ {(refl .x) P Px → Px })
+--   (λ x≡ₗy → x≡ₗy (x ≡_) (refl x)) 
+--   (λ {(refl .x) → refl (refl x)})
+--   λ x≡ₗy → ext λ {P → ext λ Px → {!   !}}
+
+cong₂ : ∀ {aℓ bℓ cℓ} {A : Type aℓ} {B : Type bℓ} {C : Type cℓ} 
+  {a x : A} {b y : B} ->
+  (f : A -> B -> C) -> (a ≡ x) -> (b ≡ y) -> f a b ≡ f x y
+cong₂ f (refl _) (refl _) = refl _
+
+-- -- ok, now both ways.
+-- ≡-Equiv : ∀ {a} {A : Type a} -> (x y : A) -> (x ≡ y) ≅ ∀ (P : A -> Type a) -> P x ⇔ P y
+-- ≡-Equiv x y = MkIso 
+--   (λ {(refl .x) → λ P → (λ x → x) , (λ x → x)})
+--   (λ ×≡ₗy → fst (×≡ₗy (_≡_ x)) (refl x))
+--   (λ {(refl .x) → refl (refl x)})
+--   -- ah shit here we go again.
+--   λ {x≡ₗy → ext λ {P → {!   !}}}
+
+
 
 #+end_src
 
@@ -100,7 +223,7 @@ martin-löf-to-leibniz = {!!}
 #+begin_src agda2
 
 Even : ℕ → Type₀
-Even n = {!!}
+Even  = {!!}
 
 Odd : ℕ → Type₀
 Odd n = {!!}
@@ -118,3 +241,4 @@ hmm : Π m ꞉ ℕ , Π n ꞉ ℕ , (Even m ∧ Even n ∧ n > m ⇒ (Σ k ꞉ �
 hmm = {!!}
 
 #+end_src
+    
