@@ -3,8 +3,11 @@
 module homework.Day2 where
 
 open import Prelude
-open import Day1
-open import Day2
+open import Day2 using (Dec′; _>_)
+
+open import Data.List using (List; []; _∷_)
+open import Relation.Nullary using (¬_)
+open import Data.Nat using (ℕ; zero; suc)
 
 #+end_src
 
@@ -228,7 +231,7 @@ Even  = {!!}
 Odd : ℕ → Type₀
 Odd n = {!!}
 
-even-dec : Π n ꞉ ℕ , Dec (Even n)
+even-dec : Π[ n ∈ ℕ ] Dec′ (Even n)
 even-dec = {!!}
 
 #+end_src
@@ -237,7 +240,7 @@ even-dec = {!!}
 Теперь вы сможете попробовать доказать следующую теорему:
 #+begin_src agda2
 
-hmm : Π m ꞉ ℕ , Π n ꞉ ℕ , (Even m ∧ Even n ∧ n > m ⇒ (Σ k ꞉ ℕ , k > m ∧ n > k ∧ Odd k))
+hmm : Π[ m ∈ ℕ ] Π[ n ∈ ℕ ] (Even m × Even n × (n > m) → (Σ[ k ∈ ℕ ] ((k > m) × (n > k) × Odd k)))
 hmm = {!!}
 
 #+end_src
