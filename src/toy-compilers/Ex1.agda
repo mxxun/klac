@@ -11,19 +11,28 @@ open Eq using (_≡_)
 open import Function using (_∘_; _$_)
 
 -- the first expression type is: nats, _+_, _*_, _-_.
+-- except let's refactor this into a BinOp expr that works uniformly.
+data BinOp : Set where
+  + : BinOp
+  * : BinOp
+  ∸ : BinOp
 
 data Expr : Set where
   val : ℕ -> Expr
-  _+_ : Expr -> Expr -> Expr
-  _*_ : Expr -> Expr -> Expr
-  _∸_ : Expr -> Expr -> Expr
+  _<_>_ : Expr -> BinOp -> Expr -> Expr
+  -- _+_ : Expr -> Expr -> Expr
+  -- _*_ : Expr -> Expr -> Expr
+  -- _∸_ : Expr -> Expr -> Expr
+
+-- interpret a binop into a binop on nats
+⟦_⟧′ : BinOp -> ℕ -> ℕ -> ℕ
+⟦ + ⟧′ = Nat._+_
+⟦ * ⟧′ = Nat._*_
+⟦ ∸ ⟧′ = Nat._∸_
 
 ⟦_⟧ : Expr -> ℕ
-⟦ val x        ⟧ = x
-⟦ left + right ⟧ = ⟦ left ⟧ Nat.+ ⟦ right ⟧
-⟦ left * right ⟧ = ⟦ left ⟧ Nat.* ⟦ right ⟧
-⟦ left ∸ right ⟧ = ⟦ left ⟧ Nat.∸ ⟦ right ⟧
-
+⟦ val x ⟧ = x
+⟦ left < op > right ⟧ = ⟦ op ⟧′ ⟦ left ⟧ ⟦ right ⟧
 ---
 
 data Instr : Set where
@@ -36,6 +45,27 @@ data Instr : Set where
 
 Stack = List ℕ
 Program = List Instr
+
+-- binops correspond to single instructions, thankfully.
+⟪_⟫′ : BinOp -> Instr
+⟪ + ⟫′ = ADD
+⟪ * ⟫′ = MUL
+⟪ ∸ ⟫′ = SUB
+
+⟪_⟫ : Expr -> Program
+-- compile should create a program that leaves a single value on the stack:
+-- the expression evaluation result.
+-- programs are ran left-to-right, so: first put on the stack the final operand,
+-- then the next operand, then...finally the operation.
+⟪ val x ⟫ = [ PUSH x ]
+⟪ l < op > r ⟫ = ⟪ r ⟫ ++ ⟪ l ⟫ ++ [ ⟪ op ⟫′ ]
+
+-- ok, now let's fix these exprs, instrs, interpretation and compile, and parametrize 
+-- the runner.
+record Runner : Set where
+  field
+    run : Program -> Stack -> Stack
+    run-partial : ∀ {s} ex pr -> run (⟪ ex ⟫ ++ pr) s ≡ run pr (run ⟪ ex ⟫ s)
 
 mutual
 -- this is just a fold really, but later on it'll be worse.
@@ -60,16 +90,6 @@ mutual
 
 ---
 
--- compile should create a program that leaves a single value on the stack:
--- the expression evaluation result.
--- programs are ran left-to-right, so: first put on the stack the final operand,
--- then the next operand, then...finally the operation.
-⟪_⟫ : Expr -> Program
-⟪ val x ⟫ = [ PUSH x ]
-⟪ l + r ⟫ = ⟪ r ⟫ ++ ⟪ l ⟫ ++ [ ADD ]
-⟪ l * r ⟫ = ⟪ r ⟫ ++ ⟪ l ⟫ ++ [ MUL ]
-⟪ l ∸ r ⟫ = ⟪ r ⟫ ++ ⟪ l ⟫ ++ [ SUB ]
-
 -- ok, so the idea of proof follows from how compilation works.
 -- the idea is that any n-ary expr compiles into 
 -- a) subprograms that leave its operands on the stack
@@ -85,60 +105,62 @@ mutual
 -- and also if we want to decouple binop work into a helper, we'll need to define
 -- these guys mutually, because recursion ultimately goes through compile-is-correct.
 
-compile-is-correct : ∀ {s} expr -> run ⟪ expr ⟫ s ≡ ⟦ expr ⟧ ∷ s
-
 run-partial : ∀ {s} pr1 pr2 -> run (pr1 ++ pr2) s ≡ run pr2 (run pr1 s)
 run-partial [] pr2 = Eq.refl
 run-partial (x ∷ pr1) pr2 = run-partial pr1 pr2
 
--- apparently we overgeneralized, and `p` wasn't necessary? ah well.
+step-semantics : ∀ op l r {s} -> run [ ⟪ op ⟫′ ] (⟦ l ⟧ ∷ ⟦ r ⟧ ∷ s) ≡ ⟦ l < op > r ⟧ ∷ s
+step-semantics + l r = Eq.refl
+step-semantics * l r = Eq.refl
+step-semantics ∸ l r = Eq.refl
+
+prog-split : ∀ l op r -> ⟪ l < op > r ⟫ ≡ ⟪ r ⟫ ++ ⟪ l ⟫ ++ [ ⟪ op ⟫′ ] -- splitting assumption
+prog-split l op r = Eq.refl
+
+compile-is-correct : ∀ {s} expr -> run ⟪ expr ⟫ s ≡ ⟦ expr ⟧ ∷ s
+
 binop-helper : 
      {s : Stack} -> {p : Program}
-  -> (_<>_ : Expr -> Expr -> Expr) -> (l r : Expr) -> (i : Instr)
-  -> ⟪ l <> r ⟫ ≡ ⟪ r ⟫ ++ ⟪ l ⟫ ++ [ i ] -- splitting assumption
-  -> run [ i ] (⟦ l ⟧ ∷ ⟦ r ⟧ ∷ s) ≡ ⟦ l <> r ⟧ ∷ s -- step semantics
-  -> run (⟪ l <> r ⟫ ++ p) s ≡ run p (⟦ l <> r ⟧ ∷ s)
-binop-helper {s} {p} _<>_ l r i prog-split step-semantics = 
+  -> (× : BinOp) -> (l r : Expr)
+  -> run (⟪ l < × > r ⟫ ++ p) s ≡ run p (⟦ l < × > r ⟧ ∷ s)
+binop-helper {s} {p} × l r = 
   begin 
-  run (⟪ l <> r ⟫ ++ p) s ≡⟨ run-partial ⟪ l <> r ⟫ p ⟩ 
-  run p (run ⟪ l <> r ⟫ s) ≡⟨ Eq.cong (run p) $
+  run (⟪ l < × > r ⟫ ++ p) s ≡⟨ run-partial ⟪ l < × > r ⟫ p ⟩ 
+  run p (run ⟪ l < × > r ⟫ s) ≡⟨ Eq.cong (run p) $
     begin 
-    run ⟪ l <> r ⟫ s ≡⟨ Eq.cong (λ t -> run t s) prog-split ⟩
-    run (⟪ r ⟫ ++ ⟪ l ⟫ ++ i ∷ []) s ≡⟨ run-partial ⟪ r ⟫ (⟪ l ⟫ ++ i ∷ []) ⟩ 
-    run (⟪ l ⟫ ++ i ∷ []) (run ⟪ r ⟫ s) ≡⟨ 
-      Eq.cong (run (⟪ l ⟫ ++ i ∷ [])) $ compile-is-correct r ⟩
-    run (⟪ l ⟫ ++ i ∷ []) (⟦ r ⟧ ∷ s) ≡⟨ run-partial ⟪ l ⟫ (i ∷ []) ⟩
-    run (i ∷ []) (run ⟪ l ⟫ (⟦ r ⟧ ∷ s)) ≡⟨ 
-      Eq.cong (run (i ∷ [])) $ compile-is-correct l ⟩
-    run (i ∷ []) (⟦ l ⟧ ∷ ⟦ r ⟧ ∷ s) ≡⟨ step-semantics ⟩
-    ⟦ l <> r ⟧ ∷ s ∎
+    run ⟪ l < × > r ⟫ s ≡⟨ Eq.cong (λ t -> run t s) (prog-split l × r) ⟩
+    run (⟪ r ⟫ ++ ⟪ l ⟫ ++ ⟪ × ⟫′ ∷ []) s ≡⟨ run-partial ⟪ r ⟫ (⟪ l ⟫ ++ ⟪ × ⟫′ ∷ []) ⟩ 
+    run (⟪ l ⟫ ++ ⟪ × ⟫′ ∷ []) (run ⟪ r ⟫ s) ≡⟨ 
+      Eq.cong (run (⟪ l ⟫ ++ ⟪ × ⟫′ ∷ [])) $ compile-is-correct r ⟩
+    run (⟪ l ⟫ ++ ⟪ × ⟫′ ∷ []) (⟦ r ⟧ ∷ s) ≡⟨ run-partial ⟪ l ⟫ (⟪ × ⟫′ ∷ []) ⟩
+    run (⟪ × ⟫′ ∷ []) (run ⟪ l ⟫ (⟦ r ⟧ ∷ s)) ≡⟨ 
+      Eq.cong (run (⟪ × ⟫′ ∷ [])) $ compile-is-correct l ⟩
+    run (⟪ × ⟫′ ∷ []) (⟦ l ⟧ ∷ ⟦ r ⟧ ∷ s) ≡⟨ step-semantics × l r ⟩
+    ⟦ l < × > r ⟧ ∷ s ∎
   ⟩
-  run p (⟦ l <> r ⟧ ∷ s) ∎
-  where open Eq.≡-Reasoning
+  run p (⟦ l < × > r ⟧ ∷ s) ∎
+  where 
+    open Eq.≡-Reasoning
 
 binop-helper′ 
   :  {s : Stack}
-  -> (_<>_ : Expr -> Expr -> Expr) -> (l r : Expr) -> (i : Instr)
-  -> ⟪ l <> r ⟫ ≡ ⟪ r ⟫ ++ ⟪ l ⟫ ++ [ i ] 
-  -> step i (⟦ l ⟧ ∷ ⟦ r ⟧ ∷ s) ≡ ⟦ l <> r ⟧ ∷ s
-  -> run (⟪ l <> r ⟫) s ≡ ⟦ l <> r ⟧ ∷ s
-binop-helper′ {s} _<>_ l r i prog-split step-sem = 
+  -> (× : BinOp) -> (l r : Expr) 
+  -> run (⟪ l < × > r ⟫) s ≡ ⟦ l < × > r ⟧ ∷ s
+binop-helper′ {s} × l r = 
   begin 
-  run ⟪ l <> r ⟫ s ≡⟨ 
+  run ⟪ l < × > r ⟫ s ≡⟨ 
     Eq.cong (λ t -> run t s) 
-      (Eq.sym $ ++-identityʳ ⟪ l <> r ⟫) 
+      (Eq.sym $ ++-identityʳ ⟪ l < × > r ⟫) 
     ⟩ 
-  run (⟪ l <> r ⟫ ++ []) s ≡⟨ binop-helper _<>_ l r i prog-split step-sem ⟩ 
-  ⟦ l <> r ⟧ ∷ s ∎
+  run (⟪ l < × > r ⟫ ++ []) s ≡⟨ binop-helper × l r ⟩ 
+  ⟦ l < × > r ⟧ ∷ s ∎
   where 
     open Eq.≡-Reasoning
     open import Data.List.Properties using (++-identityʳ)
 
 
 compile-is-correct (val x) = Eq.refl
-compile-is-correct (left + right) = binop-helper′ _+_ left right _ Eq.refl Eq.refl
-compile-is-correct (left * right) = binop-helper′ _*_ left right _ Eq.refl Eq.refl
-compile-is-correct (left ∸ right) = binop-helper′ _∸_ left right _ Eq.refl Eq.refl
+compile-is-correct (left < op > right) = binop-helper′ op left right
 
 -- it is of note that all of this depends merely on:
 -- a) the run-partial lemma
