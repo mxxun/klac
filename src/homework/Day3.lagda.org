@@ -7,7 +7,7 @@ open import Prelude
 open import Day3 using (Stream; _!_; _>ᵢ_)
 
 open import Data.Nat using (ℕ; zero; suc)
-open import Relation.Nullary using (Dec)
+open import Relation.Nullary using (Dec; yes; no)
 
 #+end_src
 
@@ -30,10 +30,12 @@ open import Relation.Nullary using (Dec)
 
 -- используйте copattern matching (C-c C-c RET), а не refine (C-c C-r)
 const : {A : Type ℓ} → A → Stream A
-const = {!!}
+Stream.h (const x) = x
+Stream.t (const x) = const x
 
 every-position-has-x : {A : Type ℓ} {x : A} (n : ℕ) → (const x) ! n ≡ x
-every-position-has-x = {!!}
+every-position-has-x zero = refl
+every-position-has-x (suc n) = every-position-has-x n
 
 #+end_src
 
@@ -42,19 +44,58 @@ every-position-has-x = {!!}
 Докажите трихотомию сравнения натуральных чисел.
 #+begin_src agda2
 
+sn≡sm→n≡m : (m n : ℕ) → suc m ≡ suc n → m ≡ n
+sn≡sm→n≡m zero .0 refl = refl
+sn≡sm→n≡m (suc m) .(suc m) refl = refl
+
 ≡-ℕ-dec : (m n : ℕ) → Dec (m ≡ n)
-≡-ℕ-dec = {!!}
+≡-ℕ-dec zero zero = yes refl
+≡-ℕ-dec zero (suc n) = no λ ()
+≡-ℕ-dec (suc m) zero = no λ ()
+≡-ℕ-dec (suc m) (suc n) with ≡-ℕ-dec m n
+... | yes p = yes (cong suc p)
+... | no  p = no (p ∘ sn≡sm→n≡m m n)
+  where open import Function using (_∘_)
 
 data Tri (m n : ℕ) : Type₀ where
   lt : n >ᵢ m → Tri m n
   eq : m ≡ n  → Tri m n
   gt : m >ᵢ n → Tri m n
 
+
+tri-lift : (m n : ℕ) -> Tri m n -> Tri (suc m) (suc n)
+tri-lift m n (lt x) = lt (_>ᵢ_.ss x)
+tri-lift m n (eq x) = eq (cong suc x)
+tri-lift m n (gt x) = gt (_>ᵢ_.ss x)
+
 ℕ-tri : (m n : ℕ) → Tri m n
-ℕ-tri = {!!}
+ℕ-tri zero zero = eq refl
+ℕ-tri zero (suc n) = lt _>ᵢ_.sz
+ℕ-tri (suc m) zero = gt _>ᵢ_.sz
+ℕ-tri (suc m) (suc n) = tri-lift m n (ℕ-tri m n)
+-- ... | lt x = lt (_>ᵢ_.ss x)
+-- ... | eq x = eq (cong suc x)
+-- ... | gt x = gt (_>ᵢ_.ss x)
+
+-- I....dislike how my brain _gave_ me this solution without really explaining
+-- what are we doing along the way, or why it would work.
+
+tri-unlift : (m n : ℕ) -> Tri (suc m) (suc n) -> Tri m n
+tri-unlift m n (lt (_>ᵢ_.ss x)) = lt x
+tri-unlift m n (eq x) = eq (sn≡sm→n≡m m n x)
+tri-unlift m n (gt (_>ᵢ_.ss x)) = gt x
+
+tri-lemma-2 : (m n : ℕ) (p : Tri (suc m) (suc n)) -> tri-lift _ _ (tri-unlift _ _ p) ≡ p
+tri-lemma-2 m n (lt (_>ᵢ_.ss x)) = refl
+tri-lemma-2 zero .zero (eq refl) = refl
+tri-lemma-2 (suc m) .(suc m) (eq refl) = refl
+tri-lemma-2 m n (gt (_>ᵢ_.ss x)) = refl
 
 -- it's really a proposition
 tri-prop : (m n : ℕ) → isProp (Tri m n)
-tri-prop = {!!}
-
+tri-prop zero zero (eq refl) (eq refl) = refl
+tri-prop zero (suc n) (lt _>ᵢ_.sz) (lt _>ᵢ_.sz) = refl
+tri-prop (suc m) zero (gt _>ᵢ_.sz) (gt _>ᵢ_.sz) = refl
+tri-prop (suc m) (suc n) p q with tri-prop _ _ (tri-unlift _ _ p) (tri-unlift _ _ q)
+...| prf = trans (sym (tri-lemma-2 _ _ p)) (trans (cong (tri-lift _ _) prf) (tri-lemma-2 _ _ q) )
 #+end_src
