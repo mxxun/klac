@@ -145,13 +145,14 @@ _∘𝒹ℓ²_ :
 
 #+begin_src agda2
 
-contra′ : {A B : 𝓤₀} → (lem : (Π X ꞉ 𝓤₀ , Dec X)) → (¬ B ⇒ ¬ A) → (A ⇒ B)
-contra′ {B = B} lem ¬B⇒¬A a with lem B 
-... | inj₁ b  = b
-... | inj₂ ¬B = ⊥-elim (¬B⇒¬A ¬B a)
-  where 
-  ⊥-elim : {l : Level} {W : Type l} -> ⊥ -> W
-  ⊥-elim ()
+contra′ : {A B : 𝓤₀} → (lem : (Π X ꞉ 𝓤₀ , Dec′ X)) → (¬ B → ¬ A) → (A → B)
+contra′ {B = B} lem ¬B⇒¬A a with lem B
+... | t = {!   !}
+-- ... | inj₁ b  = b
+-- ... | inj₂ ¬B = ⊥-elim (¬B⇒¬A ¬B a)
+  -- where 
+  -- ⊥-elim : {l : Level} {W : Type l} -> ⊥ -> W
+  -- ⊥-elim ()
 
 #+end_src
 
@@ -165,14 +166,14 @@ contra′ {B = B} lem ¬B⇒¬A a with lem B
 
 #+begin_src agda2
 
-_≡ₗ_ : {l : Level} {A : Type l} → (x y : A) → Type (suc-ℓ l)
-_≡ₗ_ {l} {A} x y = ∀ (P : A -> Type l) -> P x ⇔ P y
+-- _≡ₗ_ : {l : Level} {A : Type l} → (x y : A) → Type (suc-ℓ l)
+-- _≡ₗ_ {l} {A} x y = ∀ (P : A -> Type l) -> P x ⇔ P y
 
-leibniz-to-martin-löf : {A : Type₀} (x y : A) → x ≡ₗ y → x ≡ y
-leibniz-to-martin-löf x y x≡ₗy = fst (x≡ₗy (x ≡_)) (refl x)
+-- leibniz-to-martin-löf : {A : Type₀} (x y : A) → x ≡ₗ y → x ≡ y
+-- leibniz-to-martin-löf x y x≡ₗy = fst (x≡ₗy (x ≡_)) (refl x)
 
-martin-löf-to-leibniz : {A : Type₀} (x y : A) → x ≡ y → x ≡ₗ y
-martin-löf-to-leibniz x y (refl .x) = λ P → (λ x → x) , (λ x → x)
+-- martin-löf-to-leibniz : {A : Type₀} (x y : A) → x ≡ y → x ≡ₗ y
+-- martin-löf-to-leibniz x y (refl .x) = λ P → (λ x → x) , (λ x → x)
 
 -- the weird thing is that we do not need ↔ to get the biimplication!
 -- -> is enough.
@@ -201,10 +202,10 @@ postulate
 --   (λ {(refl .x) → refl (refl x)})
 --   λ x≡ₗy → ext λ {P → ext λ Px → {!   !}}
 
-cong₂ : ∀ {aℓ bℓ cℓ} {A : Type aℓ} {B : Type bℓ} {C : Type cℓ} 
-  {a x : A} {b y : B} ->
-  (f : A -> B -> C) -> (a ≡ x) -> (b ≡ y) -> f a b ≡ f x y
-cong₂ f (refl _) (refl _) = refl _
+-- cong₂ : ∀ {aℓ bℓ cℓ} {A : Type aℓ} {B : Type bℓ} {C : Type cℓ} 
+--   {a x : A} {b y : B} ->
+--   (f : A -> B -> C) -> (a ≡ x) -> (b ≡ y) -> f a b ≡ f x y
+-- cong₂ f (refl _) (refl _) = refl _
 
 -- -- ok, now both ways.
 -- ≡-Equiv : ∀ {a} {A : Type a} -> (x y : A) -> (x ≡ y) ≅ ∀ (P : A -> Type a) -> P x ⇔ P y
