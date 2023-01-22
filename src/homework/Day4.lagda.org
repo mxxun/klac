@@ -41,20 +41,20 @@ nextElems {xs = _ ∷ _  } (there p) = nextElems p
 is-sorted : {A : Type ℓ}
             ⦃ po : PartialOrder A ⦄
             (xs : List A) → Type ℓ
-is-sorted {_} {A} xs = {t : A} {p : t ∈ xs} → All (t ≤_) (nextElems p)
+is-sorted {_} {A} xs = {t : A} (p : t ∈ xs) → All (t ≤_) (nextElems p)
 
 -- давайте сделаем отдельный тип, элементами которого будут _только_ отсортированные списки
 SortedList : (A : Type ℓ) ⦃ po : PartialOrder A ⦄ → Type ℓ
-SortedList A = {!!}
+SortedList A = Σ (List A) is-sorted
 
 forget-naive : {A : Type ℓ} ⦃ po : PartialOrder A ⦄ →
                SortedList A → List A
-forget-naive = {!!}
+forget-naive = fst
 
 validate-naive : {A : Type ℓ}
                  ⦃ po : PartialOrder A ⦄
                  (xsₛ : SortedList A) → is-sorted (forget-naive xsₛ)
-validate-naive = {!!}
+validate-naive = snd
 
 #+end_src
 
@@ -66,18 +66,33 @@ validate-naive = {!!}
 
 data IsSorted {A : Type ℓ} ⦃ po : PartialOrder A ⦄ : List A → Type ℓ where
   -- какие есть принципиально разные случаи отсортированности списков?
+  nil  : IsSorted []
+  sing : ∀ a -> IsSorted (a ∷ [])
+  ext  : ∀ a₁ a₂ as -> a₁ ≤ a₂ -> IsSorted (a₂ ∷ as) -> IsSorted (a₁ ∷ a₂ ∷ as)
 
 SortedListᵢ : (A : Type ℓ) ⦃ po : PartialOrder A ⦄ → Type ℓ
-SortedListᵢ A = {!!}
+SortedListᵢ A = Σ (List A) IsSorted
 
 forgetᵢ : {A : Type ℓ} ⦃ po : PartialOrder A ⦄ →
           SortedListᵢ A → List A
-forgetᵢ = {!!}
+forgetᵢ = fst
+
 
 validateᵢ : {A : Type ℓ}
             ⦃ po : PartialOrder A ⦄
             (xsₛ : SortedListᵢ A) → is-sorted (forgetᵢ xsₛ)
-validateᵢ = {!!}
+-- wait, where's the nil case?
+validateᵢ (xs , sing a) {t} (here px) = All.[]
+validateᵢ (.(a₁ ∷ a₂ ∷ as) , ext a₁ a₂ as a₁≤a₂ ISa₂∷as) {.a₁} (here refl) =
+  a₁≤a₂ All.∷ All.map I (validateᵢ (a₂ ∷ as , ISa₂∷as) (here refl))
+  where
+    open import Data.List.Relation.Unary.All as All
+    I : ∀ {a} -> a₂ ≤ a -> a₁ ≤ a
+    I a₂≤a = IsPartialOrder.trans ipo a₁≤a₂ a₂≤a
+    -- II : All (a₂ ≤_) as
+    -- II = validateᵢ (a₂ ∷ as , ISa₂∷as) (here refl)
+validateᵢ (.(a₁ ∷ a₂ ∷ as) , ext a₁ a₂ as x snd₁) {t} (there p) =
+  validateᵢ (a₂ ∷ as , snd₁) p
 
 #+end_src
 
@@ -86,8 +101,17 @@ validateᵢ = {!!}
 Можно ли напрямую определить отсортированные списки как индуктивный тип?
 Для вдохновения почитайте [[https://personal.cis.strath.ac.uk/conor.mcbride/Pivotal.pdf][How to keep your neighbours in order]].
 
-#+begin_src agda2
+A: 
+See: Day4.SortedListHard.agda. it's fun!
+....following the paper, we pose that the question is not whether we _can_; of course we can.
+the real question is: how to define inherently-sorted lists so as to provide a convenient API?
+e.g. : end-user programmers (including us) would rather....not prove anything they don't strictly need.
+you'd be surprised how few things you _do_ need!
+It turns out `Dichotomous _≤_` is enough to construct, insert, rotate, merge, append...
+(----NB: agda-stdlib calls this Total, and we should too really.)
+(Add in Decidable _==_, and I bet you can search.)
 
+#+begin_src agda2
 data SortedListHard (A : Type ℓ) : Type ℓ where
   -- h̷̢̘͙̳͙͇̥̐̓͌͌̈̾͜͠͝ȩ̸̡̨̳̭̘̹̞̩̠͉̥͍͔͂̆̏̆͂͗̀͊̒͊̄͋̄̕ͅ ̷͎̺̯͕̋̍̊c̵̢̨̜̬̦͎̪͔̩͕͔̪̊̏̈́̃̂̉͆̆̿͗͘̚͘͝ó̸̡̜̺̻̫m̶̧̨̩̘̻̯͍̜̥̥̪̩̮͔̎̓̈́̅͗͆̆e̶͉͚̙̫͇̩̻̩̯͂̉̂̈́͂̐̌͊͒̾̌̀̕̚͜ş̶̳̣̦͔͍͔̘͍͇̮͍̫̠͈͊
 
