@@ -61,3 +61,11 @@ module HLevels where
   isContr A = A × isProp A
 
 open HLevels public
+
+it : {A : Type ℓ} → ⦃ x : A ⦄ → A
+it ⦃ x ⦄ = x
+
+Σ-≡ : {A : Type₀} {B : A → Type₀} {P Q : Σ a ꞉ A , B a} →
+      (basePath : fst P ≡ fst Q) → (liftedPath : subst B basePath (snd P) ≡ snd Q) →
+      P ≡ Q
+Σ-≡ refl refl = refl
