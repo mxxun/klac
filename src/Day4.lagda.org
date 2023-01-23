@@ -133,7 +133,7 @@ data RegExp (A : Type ℓ) : Type ℓ where
   ø    :                       RegExp A
   ε    :                       RegExp A
   ‵_   : A        →            RegExp A
-  _∙_ : RegExp A → RegExp A → RegExp A
+  _∙_  : RegExp A → RegExp A → RegExp A
   _∣_  : RegExp A → RegExp A → RegExp A
   _+   : RegExp A →            RegExp A
 infixr 3 _∙_

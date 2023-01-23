@@ -130,11 +130,48 @@ reNotEmpty ε = true
 reNotEmpty (‵ _) = true
 reNotEmpty (re₁ ∙ re₂) = reNotEmpty re₁ && reNotEmpty re₂
 reNotEmpty (re₁ ∣ re₂) = reNotEmpty re₁ || reNotEmpty re₂
-reNotEmpty (_ +) = true
+reNotEmpty (re +) = reNotEmpty re
 
 reNE-correct : {A : Type ℓ} {s : List A} {re : RegExp A} →
                (s =~ re) → reNotEmpty re ≡ true
-reNE-correct = {!!}
+reNE-correct MEmpty = refl
+reNE-correct MChar = refl
+reNE-correct {re = re₁ ∙ re₂} (MApp ml mr) with reNE-correct ml | reNE-correct mr
+...| eql | eqr = trans (cong (\t -> t && reNotEmpty re₂) eql) eqr
+reNE-correct {re = re₁ ∣ re₂} (MUnionL m) with reNE-correct m
+...| eq = cong (\t -> t || reNotEmpty re₂) eq
+reNE-correct {re = re₁ ∣ re₂} (MUnionR m) with reNE-correct m
+...| eq = trans (cong (\t -> reNotEmpty re₁ || t) eq) I
+  where
+    I : ∀ {b} -> b || true ≡ true
+    I {false} = refl
+    I {true} = refl
+reNE-correct (MPlus0 m) = reNE-correct m
+reNE-correct (MPlusS m m₁) = reNE-correct m
+
+reNE-correct2 : {A : Type ℓ} (re : RegExp A) →
+               reNotEmpty re ≡ true → Σ[ s ∈ List A ] (s =~ re)
+reNE-correct2 ε eq = [] , MEmpty
+reNE-correct2 (‵ x) eq = x ∷ [] , MChar
+reNE-correct2 (reL ∙ reR) eq with
+  reNotEmpty reL in eqL | reNotEmpty reR in eqR
+...| true | true with reNE-correct2 reL eqL | reNE-correct2 reR eqR
+...  | sL , prfL | sR , prfR = sL ++ sR , MApp prfL prfR
+reNE-correct2 (reL ∣ reR) eq with reNotEmpty reL in eqL
+... | false with reNE-correct2 reR eq
+...   | s , prf = s , MUnionR prf
+reNE-correct2 (reL ∣ reR) eq
+    | true with reNE-correct2 reL eqL
+...   | s , prf = s , MUnionL prf
+reNE-correct2 (re +) eq with reNE-correct2 re eq
+...| s , prf = s , MPlus0 prf
+-- yeah so that's fun.
+
+
+-- Uh no it's not?
+-- ø+-empty : ∀ {A W : Type ℓ} {s : List A} -> (s =~ (ø +)) -> W
+-- ø+-empty (MPlus0 ())
+-- ø+-empty (MPlusS () m₁)
 
 #+end_src
 
@@ -149,16 +186,101 @@ pumpingConstant ø = 0
 pumpingConstant ε = 1
 pumpingConstant (‵ _) = 2
 pumpingConstant (re₁ ∙ re₂) = pumpingConstant re₁ + pumpingConstant re₂
-pumpingConstant (re₁ ∣ re₂) = pumpingConstant re₁ + pumpingConstant re₂
+pumpingConstant (re₁ ∣ re₂) = pumpingConstant re₁ + pumpingConstant re₂ -- I think this could be max
 pumpingConstant (_ +) = 1
 
 pump : {A : Type ℓ} → ℕ → List A → List A
 pump 0       xs = xs
 pump (suc n) xs = xs ++ pump n xs
 
+-- I : ∀ s -> 1 ≤ₙ length s -> ¬ s ≡ []
+-- I s prf = {!!}
+
+pump-+ : {A : Type ℓ} (s : List A) (re : RegExp A) -> s =~ re -> ∀ n -> pump n s =~ re +
+pump-+ s re match zero = MPlus0 match
+pump-+ s re match (suc n) = MPlusS match (pump-+ s re match n)
+
++-++ : ∀ {A : Type ℓ} sL sR (re : RegExp A) -> sL =~ re + -> sR =~ re + -> sL ++ sR =~ re +
++-++ sL sR re (MPlus0 mL) = MPlusS mL
++-++ s sR re (MPlusS {s₁ = sL} {s₂ = sM} mL mM) = λ mR →
+  subst (\t -> t =~ re +) (sym (++-assoc sL sM sR)) (MPlusS mL (+-++ sM sR re mM mR)) where
+  open import Data.List.Properties
+
+open import Data.Sum using (_⊎_)
++≤ₙ+-≤ₙ⊎≤ₙ : ∀ a b c d -> a + b ≤ₙ c + d -> a ≤ₙ c ⊎ b ≤ₙ d
++≤ₙ+-≤ₙ⊎≤ₙ a b c d = {!!} -- can we.....not.
+-- ...ok, sketch: Decide on a≤c and b≤d. if either, great; if both don't, combine into a+b > c+d.
+-- from there...uh either directly contradiction, or again Decide on a+b≤c+d and from there definitely contradition in both cases.
+
+++-ass3 : ∀ {A : Type ℓ} (a : List A) b c d -> (a ++ b ++ c) ++ d ≡ a ++ b ++ c ++ d
+++-ass3 a b c d = begin
+  (a ++ b ++ c) ++ d ≡⟨ ++-assoc a (b ++ c) d ⟩
+  a ++ (b ++ c) ++ d ≡⟨ cong (a ++_) (++-assoc b c d) ⟩
+  a ++ b ++ c ++ d ∎
+  where open ≡-Reasoning; open import Data.List.Properties
+++-ass3' : ∀ {A : Type ℓ} (a : List A) b c d -> a ++ b ++ c ++ d ≡ (a ++ b) ++ c ++ d
+++-ass3' a b c d = sym (++-assoc a b (c ++ d))
+  where open import Data.List.Properties
+aux∙ : ∀ {A : Type ℓ} a b (sL : List A) sR -> a + b ≤ₙ length (sL ++ sR) -> a ≤ₙ length sL ⊎ b ≤ₙ length sR
+aux∙ a b sL sR prf = +≤ₙ+-≤ₙ⊎≤ₙ _ _ _ _ (subst (\t -> a + b ≤ₙ t) (length-++ sL) prf)
+  where open import Data.List.Properties
+
+
 pumpingLemma : {A : Type ℓ} {s : List A} {re : RegExp A} → (s =~ re) →
                (pumpingConstant re ≤ₙ length s) →
-               Σ _ λ s₁ → Σ _ λ s₂ → Σ _ λ s₃ → (s ≡ s₁ ++ s₂ ++ s₃) × (¬ (s₂ ≡ [])) × ((m : ℕ) → s₁ ++ pump m s₂ ++ s₃ =~ re)
-pumpingLemma = {!!}
+               Σ[ s₁ ∈ _ ] Σ[ s₂ ∈ _ ] Σ[ s₃ ∈ _ ]
+               (s ≡ s₁ ++ s₂ ++ s₃) × (¬ (s₂ ≡ [])) × ((m : ℕ) → s₁ ++ pump m s₂ ++ s₃ =~ re)
+pumpingLemma {re = ε} MEmpty ()
+pumpingLemma {re = ‵ x} MChar (_≤ₙ_.s≤s ())
+pumpingLemma {re = reL ∙ reR} (MApp {s₁ = sL} {s₂ = sR} mL mR) long with aux∙ _ _ sL sR long
+... | _⊎_.inj₁ x with pumpingLemma mL x
+... | sL' , sP , sM , splits , sPNE , pumps =
+      sL' , sP , sM ++ sR , I , sPNE , II
+  where
+  I :  sL ++ sR ≡ sL' ++ sP ++ sM ++ sR
+  I = trans (cong (_++ sR) splits) (++-ass3 sL' sP sM sR)
+  
+  II : (m : ℕ) → sL' ++ pump m sP ++ sM ++ sR =~ reL ∙ reR
+  II m = subst (\t -> t =~ reL ∙ reR) III (MApp (pumps m) mR)
+    where
+    III : (sL' ++ pump m sP ++ sM) ++ sR ≡ sL' ++ pump m sP ++ sM ++ sR
+    III = ++-ass3 sL' (pump m sP) sM sR
+pumpingLemma {re = reL ∙ reR} (MApp {s₁ = sL} {s₂ = sR} mL mR) long
+    | _⊎_.inj₂ y with pumpingLemma mR y
+... | sM , sP , sR' , splits , sPNE , pumps =
+      sL ++ sM , sP , sR' , I , sPNE , II
+  where
+  I : sL ++ sR ≡ (sL ++ sM) ++ sP ++ sR'
+  I = trans (cong (sL ++_) splits) (++-ass3' sL sM sP sR')
+  II : (m : ℕ) → (sL ++ sM) ++ pump m sP ++ sR' =~ reL ∙ reR
+  II m = subst (\t -> t =~ reL ∙ reR) III (MApp mL (pumps m))
+    where
+    III : sL ++ sM ++ pump m sP ++ sR' ≡ (sL ++ sM) ++ pump m sP ++ sR'
+    III = ++-ass3' sL sM (pump m sP) sR'
+pumpingLemma {re = reL ∣ reR} (MUnionL m) long -- recurse w/ transitivity of pC reL <= + <= length
+  with pumpingLemma m (m+n≤o⇒m≤o (pumpingConstant reL) long)
+  where open import Data.Nat.Properties
+...| sL , sP , sR , splits , sPNE , pumps =
+     sL , sP , sR , splits , sPNE , λ m → MUnionL (pumps m)
+pumpingLemma {re = reL ∣ reR} (MUnionR m) long
+  with pumpingLemma m (m+n≤o⇒n≤o (pumpingConstant reL) long)
+  where open import Data.Nat.Properties
+...| sL , sP , sR , splits , sPNE , pumps =
+     sL , sP , sR , splits , sPNE , λ m → MUnionR (pumps m)
+pumpingLemma {s = s} {re = re +} (MPlus0 match) long =
+  [] , s , [] , sym (++-identityʳ s) , I s long , III where
+  open import Data.List.Properties
+  I : ∀ s -> 1 ≤ₙ length s -> ¬ s ≡ []
+  I .[] () refl
+  III : (m : ℕ) -> pump m s ++ [] =~ re +
+  III m = subst (\t -> t =~ re +) (sym (++-identityʳ _)) (pump-+ s re match m )
+pumpingLemma {re = re +} (MPlusS {s₁ = []} {s₂ = sRest} m mRest) long =
+  pumpingLemma mRest long
+pumpingLemma {re = re +} (MPlusS {s₁ = x ∷ sFst} {s₂ = sRest} mFst mRest) long =
+  [] , x ∷ sFst , sRest , refl , I , II where
+  I : ¬ x ∷ sFst ≡ []
+  I ()
+  II : (n : ℕ) → pump n (x ∷ sFst) ++ sRest =~ re +
+  II n = +-++ _ sRest re (pump-+ (x ∷ sFst) re mFst n ) mRest
 
 #+end_src
