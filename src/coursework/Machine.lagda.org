@@ -2,26 +2,25 @@
 
 #+begin_src agda2
 
-{-# OPTIONS --safe #-}
+{-# OPTIONS --safe --guardedness #-}
 module coursework.Machine where
 
-open import Data.Nat using (ℕ; zero; suc; NonZero; _≤_; _≤ᵇ_; s≤s; _*_) renaming (pred to predₙ)
-open import Data.Nat.Properties using (≤ᵇ⇒≤; _≤?_) renaming (_≟_ to _≟ₙ_)
-open import Data.Bool using (T) renaming (Bool to 𝔹; false to f′; true to t′)
-open import Data.Bool.Properties using () renaming (_≟_ to _≟ᵇ_)
-open import Data.Fin.Base using (Fin; zero; suc; pred; toℕ)
-open import Data.Maybe using (Maybe; nothing; just; _>>=_)
-open import Function.Base using (_$_; _∘_; _∘′_)
-open import Relation.Nullary using (¬_; Dec; yes; no; contradiction)
-open import Relation.Nullary.Decidable using (⌊_⌋)
-open import Function.Inverse using (_↔_; Inverse)
-open import Data.Empty using (⊥)
-open import Function.Equality using (_⟨$⟩_)
-open Inverse
+open import Cubical.Foundations.Prelude
+open import Cubical.Foundations.Function
 
-open import Generics
+open import Cubical.Data.Empty as ⊥
+open import Cubical.Data.Digit
+-- open import Data.Product using (map)
+open import Cubical.Data.Nat
+open import Cubical.Data.Bool using (T) renaming (Bool to 𝔹; false to f′; true to t′)
+open import Cubical.Data.Fin.Base using (Fin; zero; suc; pred; toℕ)
+open import Cubical.Data.Maybe
+open import Cubical.Data.Vec.Base
 
-open import Prelude
+open import Cubical.Relation.Nullary
+
+open import Cubical.Instances.DecEq
+
 open import coursework.Bits
 open Serializable
 
@@ -41,13 +40,13 @@ record Flags : Type₀ where
     overflow : Bit
 open Flags
 
-instance
-  decEqFlags : DecEq Flags
-  DecEq._≟_ decEqFlags x y with stop x ≟ stop y
-  ... | no ¬f = no λ p → ¬f (cong stop p)
-  ... | yes f with overflow x ≟ overflow y
-  ... | no ¬o = no λ p → ¬o (cong overflow p)
-  ... | yes o = yes (cong₂ mkFlags f o)
+-- instance
+--   decEqFlags : DecEq Flags
+--   DecEq._≟_ decEqFlags x y with stop x ≟ stop y
+--   ... | no ¬f = no λ p → ¬f (cong stop p)
+--   ... | yes f with overflow x ≟ overflow y
+--   ... | no ¬o = no λ p → ¬o (cong overflow p)
+--   ... | yes o = yes (cong₂ mkFlags f o)
 
 initFlags : Flags
 initFlags = record
@@ -57,6 +56,9 @@ initFlags = record
 
 stopᶠ : Flags → Flags
 stopᶠ f = record f { stop = 1b }
+
+overflowᶠ : Bit → Flags → Flags
+overflowᶠ of f = record f { overflow = of }
 
 #+end_src
 
@@ -80,10 +82,11 @@ record MS (programSize : ℕ) (program : ByteArray programSize) : Type₀ where
     stack     : ByteArray stackSize
 open MS
 
-initMachine : (ps : ℕ) ⦃ _ : NonZero ps ⦄
+initMachineState : (ps : ℕ)
               (p : ByteArray ps) (ss : ℕ) →
               MS ps p
-initMachine (suc ps) p ss = record
+initMachineState zero p ss = ?
+initMachineState (suc ps) p ss = record
   { ip = zero
   ; flags = initFlags
   ; stackSize = ss
@@ -92,30 +95,34 @@ initMachine (suc ps) p ss = record
 
 private
   variable
-    ps ps′ ss : ℕ
+    ps ps′ ss n : ℕ
     p : ByteArray ps
 
 -- it wraps around
-nextIp′ : BytePtr (suc ps) → BytePtr (suc ps)
-nextIp′ {ps} ip with toℕ ip ≟ₙ ps
+incIP : BytePtr (suc ps) → BytePtr (suc ps)
+incIP {ps} ip with toℕ ip ≟ ps
 ... | yes _ = zero
 ... | no  p with helper ip p
   where
   helper : {ps : ℕ} → (ip : BytePtr (suc ps)) → (toℕ ip ≢ ps) → Σ ℕ λ ps′ → ps ≡ suc ps′
-  helper {zero        } zero       p = contradiction refl p
+  helper {zero        } zero       p = ⊥.rec (p refl)
   helper {suc zero    } zero       _ = zero , refl
-  helper {suc zero    } (suc zero) p = contradiction refl p
+  helper {suc zero    } (suc zero) p = ⊥.rec (p refl)
   helper {suc (suc ps)} _          _ = suc ps , refl
 ... | ps′ , refl with ip
-... | zero    = suc zero
-... | suc ip′ = suc (nextIp′ ip′)
+... | zero    = suc ? -- zero
+... | suc ip′ = suc ? -- (incIP ip′)
+
+private variable
+  ℓ : Level
+  A : Type ℓ
 
 iterate : ℕ → (A → A) → (A → A)
 iterate 0       _ x = x
 iterate (suc n) f x = iterate n f (f x)
 
-nextIp : BytePtr (suc ps) → BytePtr (suc ps)
-nextIp = iterate 2 nextIp′
+advanceIP : BytePtr (suc ps) → BytePtr (suc ps)
+advanceIP = iterate 2 incIP
 
 #+end_src
 
@@ -133,31 +140,32 @@ data Instr : Type₀ where
 --   skip         :     Byte → Instr
   skipIf       : 𝔹 → Byte → Instr
   nop halt     :            Instr
+  df           :            Instr
 
-InstrD : HasDesc Instr
-InstrD = deriveDesc Instr
+Program : (n : ℕ) → Type₀
+Program n = Vec Instr n
 
-instance
-  showInstr : Show Instr
-  showInstr = deriveShow InstrD
+-- instance
+--   showInstr : Show Instr
+--   showInstr = deriveShow InstrD
 
-bitsAndBytes : Bits 16 ↔ ByteArray 2
-to bitsAndBytes = record
-  { _⟨$⟩_ = λ where
-      (b₀ ∷ b₁ ∷ b₂ ∷ b₃ ∷ b₄ ∷ b₅ ∷ b₆ ∷ b₇ ∷ bs) → (b₀ ∷ b₁ ∷ b₂ ∷ b₃ ∷ b₄ ∷ b₅ ∷ b₆ ∷ b₇ ∷ []) ∷ bs ∷ []
-  ; cong = λ { refl → refl }
-  }
-from bitsAndBytes = record
-  { _⟨$⟩_ = λ where
-      (x ∷ y ∷ []) → x ++ y
-  ; cong = λ { refl → refl }
-  }
-inverse-of bitsAndBytes = record
-  { left-inverse-of = λ where
-      (b₀ ∷ b₁ ∷ b₂ ∷ b₃ ∷ b₄ ∷ b₅ ∷ b₆ ∷ b₇ ∷ bs) → refl
-  ; right-inverse-of = λ where
-      ((b₀ ∷ b₁ ∷ b₂ ∷ b₃ ∷ b₄ ∷ b₅ ∷ b₆ ∷ b₇ ∷ []) ∷ bs ∷ []) → refl
-  }
+-- bitsAndBytes : Bits 16 ↔ ByteArray 2
+-- to bitsAndBytes = record
+--   { _⟨$⟩_ = λ where
+--       (b₀ ∷ b₁ ∷ b₂ ∷ b₃ ∷ b₄ ∷ b₅ ∷ b₆ ∷ b₇ ∷ bs) → (b₀ ∷ b₁ ∷ b₂ ∷ b₃ ∷ b₄ ∷ b₅ ∷ b₆ ∷ b₇ ∷ []) ∷ bs ∷ []
+--   ; cong = λ { refl → refl }
+--   }
+-- from bitsAndBytes = record
+--   { _⟨$⟩_ = λ where
+--       (x ∷ y ∷ []) → x ++ y
+--   ; cong = λ { refl → refl }
+--   }
+-- inverse-of bitsAndBytes = record
+--   { left-inverse-of = λ where
+--       (b₀ ∷ b₁ ∷ b₂ ∷ b₃ ∷ b₄ ∷ b₅ ∷ b₆ ∷ b₇ ∷ bs) → refl
+--   ; right-inverse-of = λ where
+--       ((b₀ ∷ b₁ ∷ b₂ ∷ b₃ ∷ b₄ ∷ b₅ ∷ b₆ ∷ b₇ ∷ []) ∷ bs ∷ []) → refl
+--   }
   
 serInstr : Serializable Instr 2
 serInstr = record { encode = encode′ ; decode = decode′ ; decode∘encode = inverses₁ ; encode∘decode = inverses₂ }
@@ -173,6 +181,7 @@ serInstr = record { encode = encode′ ; decode = decode′ ; decode∘encode = 
   encode′ add           = (1b ∷ 0b ∷ 0b ∷ 0b ∷ 0b ∷ 0b ∷ 0b ∷ 0b ∷ []) ∷ 0byte ∷ []
 --   encode′ sub           = (1b ∷ 0b ∷ 0b ∷ 1b ∷ 0b ∷ 0b ∷ 0b ∷ 0b ∷ []) ∷ 0byte ∷ []
   encode′ eq            = (1b ∷ 1b ∷ 0b ∷ 0b ∷ 0b ∷ 0b ∷ 0b ∷ 0b ∷ []) ∷ 0byte ∷ []
+  encode′ df            = (1b ∷ 1b ∷ 1b ∷ 0b ∷ 0b ∷ 0b ∷ 0b ∷ 0b ∷ []) ∷ 0byte ∷ []
 --   encode′ mul           = (1b ∷ 0b ∷ 1b ∷ 0b ∷ 0b ∷ 0b ∷ 0b ∷ 0b ∷ []) ∷ 0byte ∷ []
 --   encode′ neq           = (1b ∷ 1b ∷ 0b ∷ 1b ∷ 0b ∷ 0b ∷ 0b ∷ 0b ∷ []) ∷ 0byte ∷ []
 --   encode′ le            = (1b ∷ 1b ∷ 1b ∷ 0b ∷ 0b ∷ 0b ∷ 0b ∷ 0b ∷ []) ∷ 0byte ∷ []
@@ -190,6 +199,7 @@ serInstr = record { encode = encode′ ; decode = decode′ ; decode∘encode = 
 --   decode′ ((1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ []) ∷ 0byteₚ ∷ []) = just sub
 --   decode′ ((1bₚ ∷ 0bₚ ∷ 1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ []) ∷ 0byteₚ ∷ []) = just mul
   decode′ ((1bₚ ∷ 1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ []) ∷ 0byteₚ ∷ []) = just eq
+  decode′ ((1bₚ ∷ 1bₚ ∷ 1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ []) ∷ 0byteₚ ∷ []) = just df
 --   decode′ ((1bₚ ∷ 1bₚ ∷ 0bₚ ∷ 1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ []) ∷ 0byteₚ ∷ []) = just neq
 --   decode′ ((1bₚ ∷ 1bₚ ∷ 1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ []) ∷ 0byteₚ ∷ []) = just le
 --   decode′ ((1bₚ ∷ 1bₚ ∷ 1bₚ ∷ 1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ []) ∷ 0byteₚ ∷ []) = just gt
@@ -210,22 +220,25 @@ serInstr = record { encode = encode′ ; decode = decode′ ; decode∘encode = 
   inverses₁ (skipIf t′ _) = refl
   inverses₁ nop = refl
   inverses₁ halt = refl
+  inverses₁ df = refl
 
   inverses₂ : (ba : ByteArray 2) {i : Instr} → decode′ ba ≡ just i → ba ≡ encode′ i
-  inverses₂ (0byteₚ                                               ∷ 0byteₚ ∷ []) refl = refl
-  inverses₂ ((0bₚ ∷ 0bₚ ∷ 1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ []) ∷ 0byteₚ ∷ []) refl = refl
---   inverses₂ ((0bₚ ∷ 0bₚ ∷ 1bₚ ∷ 1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ []) ∷ _      ∷ []) refl = refl
-  inverses₂ ((0bₚ ∷ 1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ []) ∷ _      ∷ []) refl = refl
-  inverses₂ ((0bₚ ∷ 1bₚ ∷ 0bₚ ∷ 1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ []) ∷ _      ∷ []) refl = refl
-  inverses₂ ((0bₚ ∷ 1bₚ ∷ 1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ []) ∷ _      ∷ []) refl = refl
-  inverses₂ ((0bₚ ∷ 1bₚ ∷ 1bₚ ∷ 1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ []) ∷ 0byteₚ ∷ []) refl = refl
-  inverses₂ ((1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ []) ∷ 0byteₚ ∷ []) refl = refl
---   inverses₂ ((1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ []) ∷ 0byteₚ ∷ []) refl = refl
---   inverses₂ ((1bₚ ∷ 0bₚ ∷ 1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ []) ∷ 0byteₚ ∷ []) refl = refl
-  inverses₂ ((1bₚ ∷ 1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ []) ∷ 0byteₚ ∷ []) refl = refl
---   inverses₂ ((1bₚ ∷ 1bₚ ∷ 0bₚ ∷ 1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ []) ∷ 0byteₚ ∷ []) refl = refl
---   inverses₂ ((1bₚ ∷ 1bₚ ∷ 1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ []) ∷ 0byteₚ ∷ []) refl = refl
---   inverses₂ ((1bₚ ∷ 1bₚ ∷ 1bₚ ∷ 1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ []) ∷ 0byteₚ ∷ []) refl = refl
+  inverses₂ = ?
+--   inverses₂ (0byteₚ                                               ∷ 0byteₚ ∷ []) refl = ?
+--   inverses₂ ((0bₚ ∷ 0bₚ ∷ 1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ []) ∷ 0byteₚ ∷ []) refl = ?
+-- --   inverses₂ ((0bₚ ∷ 0bₚ ∷ 1bₚ ∷ 1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ []) ∷ _      ∷ []) refl = refl
+--   inverses₂ ((0bₚ ∷ 1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ []) ∷ _      ∷ []) refl = ?
+--   inverses₂ ((0bₚ ∷ 1bₚ ∷ 0bₚ ∷ 1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ []) ∷ _      ∷ []) refl = ?
+--   inverses₂ ((0bₚ ∷ 1bₚ ∷ 1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ []) ∷ _      ∷ []) refl = ?
+--   inverses₂ ((0bₚ ∷ 1bₚ ∷ 1bₚ ∷ 1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ []) ∷ 0byteₚ ∷ []) refl = ?
+--   inverses₂ ((1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ []) ∷ 0byteₚ ∷ []) refl = ?
+-- --   inverses₂ ((1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ []) ∷ 0byteₚ ∷ []) refl = refl
+-- --   inverses₂ ((1bₚ ∷ 0bₚ ∷ 1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ []) ∷ 0byteₚ ∷ []) refl = refl
+--   inverses₂ ((1bₚ ∷ 1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ []) ∷ 0byteₚ ∷ []) refl = ?
+--   inverses₂ ((1bₚ ∷ 1bₚ ∷ 1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ []) ∷ 0byteₚ ∷ []) refl = ?
+-- --   inverses₂ ((1bₚ ∷ 1bₚ ∷ 0bₚ ∷ 1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ []) ∷ 0byteₚ ∷ []) refl = refl
+-- --   inverses₂ ((1bₚ ∷ 1bₚ ∷ 1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ []) ∷ 0byteₚ ∷ []) refl = refl
+-- --   inverses₂ ((1bₚ ∷ 1bₚ ∷ 1bₚ ∷ 1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ []) ∷ 0byteₚ ∷ []) refl = refl
 
 instance
   serBool : Serializable 𝔹 1
@@ -241,12 +254,9 @@ instance
         f′ → refl
         t′ → refl
     ; encode∘decode = λ where
-        (0byteₚ ∷ []) refl → refl
-        ((1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ []) ∷ []) refl → refl
+        (0byteₚ ∷ []) refl → ?
+        ((1bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ 0bₚ ∷ []) ∷ []) refl → ?
     }
-
-decodeAsℕ : Byte → ℕ
-decodeAsℕ = fromDigits ∘′ toList
 
 #+end_src
 
@@ -257,54 +267,81 @@ decodeAsℕ = fromDigits ∘′ toList
 
 #+begin_src agda2
 
-private
-  instance
-    ≤-dec : {p : T (m ≤ᵇ n)} → m ≤ n
-    ≤-dec {p = p} = ≤ᵇ⇒≤ _ _ p
+-- private
+--   instance
+--     ≤-dec : {p : T (m ≤ᵇ n)} → m ≤ n
+--     ≤-dec {p = p} = ≤ᵇ⇒≤ _ _ p
+
+-- fetch : MS ps p → Maybe (ByteArray 2)
+-- fetch {ps = suc (suc ps)} {p = p} ms with toℕ (ip ms) ≤? ps
+-- ... | yes q = just $ slice_at_as_ p (ip ms) 2 ⦃ s≤s (s≤s q) ⦄
+-- ... | no  _ = nothing
+-- fetch {ps = _           } _ = nothing
 
 fetch : MS ps p → Maybe (ByteArray 2)
-fetch {ps = suc (suc ps)} {p = p} ms with toℕ (ip ms) ≤? ps
-... | yes q = just $ slice_at_as_ p (ip ms) 2 ⦃ s≤s (s≤s q) ⦄
-... | no  _ = nothing
-fetch {ps = _           } _ = nothing
+fetch = ?
 
 stopᵐ : MS ps p → MS ps p
 stopᵐ ms = record ms { flags = stopᶠ $ ms .flags }
 
+overflowᵐ : Bit → MS ps p → MS ps p
+overflowᵐ of ms = record ms { flags = overflowᶠ of $ ms .flags }
+
+advanceIPᵐ : MS (suc ps) p → MS (suc ps) p
+advanceIPᵐ ms = record ms { ip = advanceIP $ ms .ip }
+
+updateStackᵐ : (f : Σ ℕ ByteArray → Σ ℕ ByteArray) → MS ps p → MS ps p
+updateStackᵐ f ms = let ss′ , stack′ = f (_ , ms .stack) in record ms { stackSize = ss′ ; stack = stack′}
+
+pushᵐ : Byte → MS ps p → MS ps p
+pushᵐ x ms = record ms { stackSize = suc (ms .stackSize) ; stack = x ∷ ms .stack}
+
+popᵐ : MS ps p → MS ps p
+popᵐ ms with ms .stackSize in sEq
+... | 0      = stopᵐ ms
+... | suc ss = record ms { stackSize = ss ; stack = tail (subst ByteArray ? (ms .stack)) }
+-- ... | suc ss = record ms { stackSize = ss ; stack = tail (subst ByteArray sEq (ms .stack)) }
+
 execute : MS (suc ps) p → Instr → MS (suc ps) p
-execute ms (push b) = record ms { ip = nextIp (ip ms) ; stackSize = suc (stackSize ms) ; stack = b ∷ stack ms }
-execute ms pop with stackSize ms in sEq
-... | suc ss = record ms { ip = nextIp (ip ms) ; stackSize = ss ; stack = tail (subst ByteArray sEq (stack ms)) }
+execute ms (push b) = advanceIPᵐ $ pushᵐ b $ ms
+execute ms pop with stackSize ms
+... | suc ss = advanceIPᵐ $ popᵐ $ ms
 ... | 0      = stopᵐ ms
 execute ms add with stackSize ms in sEq
 ... | 0            = stopᵐ ms
 ... | 1            = stopᵐ ms
-... | suc (suc ss) with slice (subst ByteArray sEq (stack ms)) at zero as 2
-... | b₁ ∷ b₂ ∷ [] = let carry , res = b₁ + b₂
-                     in record ms { ip = nextIp (ip ms) ; flags = record { stop = stop (flags ms) ; overflow = carry } ; stackSize = suc ss ; stack = res ∷ drop 2 (subst ByteArray sEq (stack ms)) }
+... | suc (suc ss) with slice (subst ByteArray ? (stack ms)) at zero as 2
+-- ... | suc (suc ss) with slice (subst ByteArray sEq (stack ms)) at zero as 2
+... | b₁ ∷ b₂ ∷ [] = let carry , res = b₁ +ᵇ b₂ in advanceIPᵐ $ overflowᵐ carry $ pushᵐ res $ popᵐ $ popᵐ ms
 execute ms eq with stackSize ms in sEq
 ... | 0 = stopᵐ ms
 ... | 1 = stopᵐ ms
-... | suc (suc ss) with slice (subst ByteArray sEq (stack ms)) at zero as 2
+... | suc (suc ss) with slice (subst ByteArray ? (stack ms)) at zero as 2
+-- ... | suc (suc ss) with slice (subst ByteArray sEq (stack ms)) at zero as 2
 ... | b₁ ∷ b₂ ∷ [] with ⌊ b₁ ≟ b₂ ⌋
-... | d = record ms { ip = nextIp (ip ms) ; stackSize = suc ss ; stack = single (encode serBool d) ∷ drop 2 (subst ByteArray sEq (stack ms)) }
+... | d = advanceIPᵐ $ pushᵐ (single (encode serBool d)) $ popᵐ $ popᵐ ms
 execute ms (skipIf c n) with stackSize ms in sEq
 ... | 0      = stopᵐ ms
 ... | suc ss with decode serBool (take 1 (subst ByteArray sEq (stack ms)))
 ... | nothing = stopᵐ ms
-... | just c′ with ⌊ c ≟ᵇ c′ ⌋
-... | t′ = record ms { ip = iterate (decodeAsℕ n) nextIp′ (ip ms) ; stackSize = ss; stack = tail (subst ByteArray sEq (stack ms))}
-... | f′ = record ms { ip = nextIp (ip ms) ; stackSize = ss; stack = tail (subst ByteArray sEq (stack ms))}
-execute ms nop = record ms { ip = nextIp (ip ms) }
+... | just c′ with ⌊ c ≟ c′ ⌋
+... | t′ = record ms { ip = ? ; stackSize = ss; stack = tail (subst ByteArray sEq (stack ms))}
+-- ... | t′ = record ms { ip = iterate (decodeByteAsℕ n) incIP (ip ms) ; stackSize = ss; stack = tail (subst ByteArray sEq (stack ms))}
+... | f′ = record ms { ip = advanceIP (ip ms) ; stackSize = ss; stack = tail (subst ByteArray sEq (stack ms))}
+execute ms nop =  advanceIPᵐ ms
 execute ms halt = stopᵐ ms
+execute ms df   = execute ms (push $ overflow (flags ms) ∷ replicate 0b)
 
 -- fetch instruction, decode, execute
 step : MS (suc ps) p → MS (suc ps) p
-step ms with stop (flags ms)
-... | 1bₚ = ms
-... | 0bₚ with fetch ms >>= decode serInstr
-... | nothing = stopᵐ ms
-... | just i  = execute ms i
+step ms = ?
+
+-- step : MS (suc ps) p → MS (suc ps) p
+-- step ms with stop (flags ms)
+-- ... | 1bₚ = ms
+-- ... | 0bₚ with fetch ms >>= decode serInstr
+-- ... | nothing = stopᵐ ms
+-- ... | just i  = execute ms i
 
 record _≈_ (x y : MS (suc ps) p) : Type₀ where
   coinductive
@@ -317,32 +354,32 @@ record _≈_ (x y : MS (suc ps) p) : Type₀ where
 MachineExtensionality : Type₀
 MachineExtensionality = ∀ {ps p} → {x y : MS (suc ps) p} → x ≈ y → x ≡ y
 
-assemble : Vec Instr n → ByteArray (n * 2)
+assemble : Program n → ByteArray (n · 2)
 assemble []       = []
 assemble (i ∷ is) = encode serInstr i ++ assemble is
 
-run_for_steps : MS (suc ps) p → ℕ → MS (suc ps) p
-run ms for 0     steps = ms
-run ms for suc n steps = run (step ms) for n steps
+runᵐ_for_steps : MS (suc ps) p → ℕ → MS (suc ps) p
+runᵐ ms for 0     steps = ms
+runᵐ ms for suc n steps = runᵐ (step ms) for n steps
 
-Halts : MS (suc ps) p → Type₀
-Halts ms = Σ ℕ λ n → stop (flags (run ms for n steps)) ≡ 1b
+Haltsᵐ : MS (suc ps) p → Type₀
+Haltsᵐ ms = Σ ℕ λ n → stop (flags (runᵐ ms for n steps)) ≡ 1b
 
 module Test {machine-ext : MachineExtensionality} where
 
   trivial : MS _ _
-  trivial = initMachine _ (assemble $ push 1byte ∷ push 1byte ∷ add ∷ halt ∷ []) 0
+  trivial = initMachineState _ (assemble $ push 1byte ∷ push 1byte ∷ add ∷ halt ∷ []) 0
 
-  trivial-halts : Halts trivial
+  trivial-halts : Haltsᵐ trivial
   trivial-halts = 4 , refl
 
   loopyBoy : Vec Instr _
   loopyBoy = push 0byte ∷ push 0byte ∷ add ∷ skipIf f′ (0b ∷ 1b ∷ replicate 0b) ∷ []
 
   k : MS 8 _
-  k = initMachine _ (assemble loopyBoy) 0
+  k = initMachineState _ (assemble loopyBoy) 0
 
-  k-loops : k ≈ (run k for 4 steps)
+  k-loops : k ≈ (runᵐ k for 4 steps)
   _≈_.sameFlags k-loops = refl
   _≈_.sameStackSize k-loops = refl
   _≈_.sameStack k-loops = refl
@@ -357,11 +394,11 @@ module Test {machine-ext : MachineExtensionality} where
   _≈_.sameStack (_≈_.sameCont (_≈_.sameCont (_≈_.sameCont k-loops))) = refl
   _≈_.sameCont (_≈_.sameCont (_≈_.sameCont (_≈_.sameCont k-loops))) = k-loops
 
-  some-programs-do-not-halt : ¬ Halts k
+  some-programs-do-not-halt : ¬ Haltsᵐ k
   some-programs-do-not-halt (n , prf) = helper n prf
     where
-    helper : (n : ℕ) → stop (flags (run k for n steps)) ≡ 1b → ⊥
+    helper : (n : ℕ) → stop (flags (runᵐ k for n steps)) ≡ 1b → ⊥
     helper (suc (suc (suc (suc n)))) prf =
-      helper n $ subst (λ j → stop (flags (run j for n steps)) ≡ 1b) (sym $ machine-ext k-loops) prf
+      helper n $ subst (λ j → stop (flags (runᵐ j for n steps)) ≡ 1b) (sym $ machine-ext k-loops) prf
 
 #+end_src

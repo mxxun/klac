@@ -20,7 +20,7 @@
 
 ## how to get it
 ```sh
-git clone --recursive https://github.com/cmcmA20/klac
+git clone -b advanced --recursive https://github.com/cmcmA20/klac
 ```
 
 ## if you already cloned it
@@ -59,20 +59,31 @@ Open any .agda file with your editor and try to typecheck it
 
    ```sh
    ghcup upgrade
-   ghcup install ghc 9.2.4
-   ghcup set ghc 9.2.4
+   ghcup install ghc 9.2.5
+   ghcup set ghc 9.2.5
    ghcup install cabal 3.6.2.0
    ghcup set cabal 3.6.2.0
    cabal update
    ```
 
-3. Install Agda, it may take a while:
+3. Install Agda 2.6.4 from source, it may take a while:
 
    ```sh
-   cabal install Agda-2.6.2.2
+   git clone https://github.com/agda/agda/ ~/agda
+   cd ~/agda
+   cabal build
+   cabal install --overwrite-policy=always
    ```
 
-4. Use emacs as your editor (commands for debian/ubuntu):
+4. Install libraries:
+
+   mini cubical library
+   ```sh
+   git clone https://github.com/cmcmA20/cubical-mini ~/.agda/cubical-mini
+   echo "$HOME/.agda/cubical-mini/cubical.agda-lib" >> ~/.agda/libraries
+   ```
+
+5. Use emacs as your editor (commands for debian/ubuntu):
 
    ```sh
    sudo apt update
@@ -81,7 +92,7 @@ Open any .agda file with your editor and try to typecheck it
    agda-mode compile
    ```
 
-5. If you want emacs agda2-mode to load by default when opening literate agda files, add this to emacs config:
+6. If you want emacs agda2-mode to load by default when opening literate agda files, add this to emacs config:
 
    ```lisp
    (add-to-list 'auto-mode-alist '("\\.lagda.org\\'" . agda2-mode))

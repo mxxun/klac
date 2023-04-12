@@ -2,7 +2,10 @@ name: klac
 include:
   src/
 depend:
-  standard-library
-  generics
+  cubical-mini
 flags:
-  --guardedness
+  --erased-cubical
+  --erasure
+  --erased-matches
+  --no-import-sorts
+  -WnoUnsupportedIndexedMatch
